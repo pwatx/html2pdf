@@ -1,6 +1,6 @@
 # HTML to PDF Converter
 
-[**中文说明**](Readme_CN.md) | English
+[**中文说明**](README_CN.md) | English
 
 A powerful tool that reads the index.html file (must use this name) from the src folder, parses the table of contents from the index page, matches it with HTML files in the src folder, and generates a bookmark.txt file. The program then converts HTML files to a single PDF document in order according to the table of contents using Node.js's Playwright library, and uses Python's PyPDF2 library to convert bookmark.txt into PDF bookmarks.
 
