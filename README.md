@@ -1,5 +1,7 @@
 # HTML to PDF Converter
 
+[**中文说明**](Readme_CN.md) | English
+
 A powerful tool that reads the index.html file (must use this name) from the src folder, parses the table of contents from the index page, matches it with HTML files in the src folder, and generates a bookmark.txt file. The program then converts HTML files to a single PDF document in order according to the table of contents using Node.js's Playwright library, and uses Python's PyPDF2 library to convert bookmark.txt into PDF bookmarks.
 
 This project can convert multiple HTML files into a single PDF document with automatic bookmark generation. It was originally developed to convert the "SSH Tutorial" from WangDoc.com into a downloadable PDF format. Therefore, this project includes sample files from the "SSH Tutorial".
