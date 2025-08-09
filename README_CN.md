@@ -1,8 +1,11 @@
 # HTML转PDF转换器
 
 一个强大的工具，程序会读取src文件夹里面的index.html（必须用这个名字）,并读取index页面里面的目录，和src文件夹里面的html对照，生成目录书签bookmark.txt。然后程序会按照目录的顺序，利用nodejs的playwright库将HTML文件转化合并为1个PDF文件，同时利用python的PyPDF2库将bookmark.txt转化为pdf的书签。
+
 此项目可以将多个HTML文件转换为单个PDF文档并自动生成书签。这个项目最初是为了将网道(WangDoc.com)的《SSH教程》转换为可下载的PDF格式而开发的。因此，此项目中包含有《SSH教程》的样例文件。
+
 样例文件的原网址：https://wangdoc.com/ssh/
+
 样例文件的Github：https://github.com/wangdoc/ssh-tutorial
 
 
