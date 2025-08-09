@@ -16,16 +16,22 @@ if sys.platform == 'win32':
     sys.stderr.reconfigure(encoding='utf-8')
 
 def parse_bookmarks(bookmarks_file):
-    """解析书签文件，提取章节标题和页码"""
+    """解析书签文件，提取文档标题和章节书签"""
     bookmarks = []
+    doc_title = "文档"  # 默认标题
     
     if not os.path.exists(bookmarks_file):
         print(f"[错误] 书签文件不存在: {bookmarks_file}")
-        return bookmarks
+        return bookmarks, doc_title
     
     try:
         with open(bookmarks_file, 'r', encoding='utf-8') as f:
             content = f.read()
+        
+        # 提取文档标题（格式："文档标题目录："）
+        title_match = re.search(r'^(.+?)目录：', content, re.MULTILINE)
+        if title_match:
+            doc_title = title_match.group(1).strip()
         
         # 使用正则表达式匹配书签条目
         # 格式: "1. 章节标题 (第X页)"
@@ -40,14 +46,15 @@ def parse_bookmarks(bookmarks_file):
                 'page': int(page_num)
             })
         
-        print(f"[成功] 从 {bookmarks_file} 中解析到 {len(bookmarks)} 个书签")
+        print(f"[成功] 从 {bookmarks_file} 中解析到文档标题: {doc_title}")
+        print(f"[成功] 解析到 {len(bookmarks)} 个章节书签")
         
     except Exception as e:
         print(f"[错误] 解析书签文件失败: {e}")
     
-    return bookmarks
+    return bookmarks, doc_title
 
-def add_bookmarks_to_pdf(pdf_file, bookmarks, output_file=None):
+def add_bookmarks_to_pdf(pdf_file, bookmarks, doc_title, output_file=None):
     """将书签添加到PDF文件"""
     if not os.path.exists(pdf_file):
         print(f"[错误] PDF文件不存在: {pdf_file}")
@@ -171,14 +178,14 @@ def main():
         return
     
     # 解析书签文件
-    bookmarks = parse_bookmarks(bookmarks_file)
+    bookmarks, doc_title = parse_bookmarks(bookmarks_file)
     
     if not bookmarks:
         print("[错误] 没有找到有效的书签信息")
         return
     
     # 添加书签到PDF
-    success = add_bookmarks_to_pdf(pdf_file, bookmarks, output_file)
+    success = add_bookmarks_to_pdf(pdf_file, bookmarks, doc_title, output_file)
     
     if success:
         print("\n[成功] 书签添加完成！")

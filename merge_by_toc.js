@@ -6,21 +6,78 @@ const fontkit = require('@pdf-lib/fontkit');
 const cheerio = require('cheerio');
 
 // 添加书签到PDF的函数
-async function addBookmarksToPdf(pdfBytes, bookmarks) {
+async function addBookmarksToPdf(pdfBytes, bookmarks, docInfo) {
   // 由于pdf-lib的限制，我们使用一个简化的方法来添加书签
   // 这里我们创建一个新的PDF文档并添加书签信息
   const pdfDoc = await PDFDocument.load(pdfBytes);
   
-  // 添加文档信息
-  pdfDoc.setTitle('SSH教程');
-  pdfDoc.setAuthor('Wangdoc');
-  pdfDoc.setSubject('SSH协议教程');
-  pdfDoc.setKeywords(['SSH', '教程', '网络安全']);
+  // 添加文档信息（从HTML中提取）
+  pdfDoc.setTitle(docInfo.title);
+  pdfDoc.setAuthor(docInfo.author);
+  pdfDoc.setSubject(docInfo.subject);
+  pdfDoc.setKeywords(docInfo.keywords);
   
   // 注意：pdf-lib不直接支持书签，但我们可以设置文档属性
   // 实际的书签功能需要更复杂的PDF操作库
   
   return await pdfDoc.save();
+}
+
+// 清理文件名，移除不适合作为文件名的字符
+function sanitizeFilename(filename) {
+  // 移除或替换不适合文件名的字符
+  return filename
+    .replace(/[\/\\:*?"<>|]/g, '')  // 移除 / \ : * ? " < > |
+    .replace(/^\s+|\s+$/g, '')      // 移除首尾空格
+    .replace(/\s+/g, '_')           // 空格替换为下划线
+    .replace(/_+/g, '_')            // 多个下划线合并为一个
+    .substring(0, 100);              // 限制长度
+}
+
+// 从HTML中提取文档信息
+function extractDocumentInfo($) {
+  const title = $('title').text().trim() || '文档';
+  const mainTitle = $('h1.title').text().trim() || title;
+  const authorInfo = $('.page-meta p').text().trim() || '';
+  const description = $('article.content p').first().text().trim() || '';
+  
+  // 提取作者名称
+  let author = 'Unknown';
+  if (authorInfo.includes('（') && authorInfo.includes('）')) {
+    author = authorInfo.match(/（(.+?)）/)[1] || authorInfo.split('，')[0];
+  } else if (authorInfo.includes('(') && authorInfo.includes(')')) {
+    author = authorInfo.match(/\((.+?)\)/)[1] || authorInfo.split(',')[0];
+  } else {
+    author = authorInfo.split('，')[0] || 'Unknown';
+  }
+  
+  // 提取关键词（从标题和描述中）
+  const keywords = [];
+  if (mainTitle) keywords.push(mainTitle);
+  if (description) {
+    // 从描述中提取关键词
+    const descWords = description.split(/[，。、\s,\.]+/).filter(word => word.length > 1);
+    keywords.push(...descWords.slice(0, 3));
+  }
+  
+  // 提取封面图片文件名
+  let coverImage = 'fengmian.png'; // 默认文件名
+  const firstImage = $('article.content img').first();
+  if (firstImage.length > 0) {
+    const src = firstImage.attr('src');
+    if (src && !src.startsWith('http')) {
+      // 如果是相对路径的本地图片，使用它作为封面
+      coverImage = src.split('/').pop(); // 只取文件名部分
+    }
+  }
+  
+  return {
+    title: mainTitle,
+    author: author,
+    subject: description,
+    keywords: keywords.slice(0, 5),
+    coverImage: coverImage
+  };
 }
 
 (async () => {
@@ -54,6 +111,14 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
     
     // 使用cheerio解析HTML
     const $ = cheerio.load(indexHtmlContent);
+    
+    // 提取文档信息
+    const docInfo = extractDocumentInfo($);
+    console.log('📄 文档信息:');
+    console.log(`   标题: ${docInfo.title}`);
+    console.log(`   作者: ${docInfo.author}`);
+    console.log(`   主题: ${docInfo.subject}`);
+    console.log(`   关键词: ${docInfo.keywords.join(', ')}`);
     
     // 提取目录链接
     const tocLinks = [];
@@ -160,7 +225,7 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
     // 尝试加载封面图片
     let coverImage = null;
     try {
-      const coverImagePath = path.join(srcDir, 'fengmian.png');
+      const coverImagePath = path.join(srcDir, docInfo.coverImage);
       if (fs.existsSync(coverImagePath)) {
         const imageBytes = fs.readFileSync(coverImagePath);
         // 尝试不同的图片格式
@@ -178,7 +243,7 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
           }
         }
       } else {
-        console.warn('⚠️ 封面图片文件不存在: fengmian.png');
+        console.warn(`⚠️ 封面图片文件不存在: ${docInfo.coverImage}`);
       }
     } catch (error) {
       console.warn('⚠️ 无法加载封面图片:', error.message);
@@ -202,14 +267,14 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
       // 在图片下方绘制文字
       if (font) {
         // 主标题
-        coverPage.drawText('SSH教程', {
+        coverPage.drawText(docInfo.title, {
           x: 150,
           y: pageHeight - imageHeight - 80,
           size: 48,
           font: font
         });
         // 副标题
-        coverPage.drawText('——by Wangdoc', {
+        coverPage.drawText(`——by ${docInfo.author}`, {
           x: 150,
           y: pageHeight - imageHeight - 120,
           size: 24,
@@ -217,13 +282,13 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
         });
       } else {
         // 主标题
-        coverPage.drawText('SSH Tutorial', {
+        coverPage.drawText(docInfo.title, {
           x: 150,
           y: pageHeight - imageHeight - 80,
           size: 48
         });
         // 副标题
-        coverPage.drawText('——by Wangdoc', {
+        coverPage.drawText(`——by ${docInfo.author}`, {
           x: 150,
           y: pageHeight - imageHeight - 120,
           size: 24
@@ -233,14 +298,14 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
       // 如果没有图片，使用原来的纯文字设计
       if (font) {
         // 主标题
-        coverPage.drawText('SSH教程', {
+        coverPage.drawText(docInfo.title, {
           x: 150,
           y: 450,
           size: 48,
           font: font
         });
         // 副标题
-        coverPage.drawText('——by Wangdoc', {
+        coverPage.drawText(`——by ${docInfo.author}`, {
           x: 150,
           y: 400,
           size: 24,
@@ -248,13 +313,13 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
         });
       } else {
         // 主标题
-        coverPage.drawText('SSH Tutorial', {
+        coverPage.drawText(docInfo.title, {
           x: 150,
           y: 450,
           size: 48
         });
         // 副标题
-        coverPage.drawText('——by Wangdoc', {
+        coverPage.drawText(`——by ${docInfo.author}`, {
           x: 150,
           y: 400,
           size: 24
@@ -466,13 +531,22 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
     // 保存最终合并的PDF
     console.log('\n📄 正在生成最终PDF文件...');
     let mergedPdfBytes = await mergedPdf.save();
-    const outputPath = path.join(outputDir, testMode ? 'test_document.pdf' : 'document_by_toc.pdf');
+    
+    // 生成基于文档标题和作者的文件名
+    const sanitizedTitle = sanitizeFilename(docInfo.title);
+    const sanitizedAuthor = sanitizeFilename(docInfo.author);
+    const baseFileName = testMode ? 'test_document' : `${sanitizedTitle}_${sanitizedAuthor}`;
+    const outputPath = path.join(outputDir, `${baseFileName}.pdf`);
+    
+    // 先保存基础PDF文件
+    fs.writeFileSync(outputPath, mergedPdfBytes);
+    console.log(`📄 基础PDF文件已保存: ${path.join('output', path.basename(outputPath))}`);
     
     // 添加书签到PDF
     if (bookmarks.length > 0) {
       try {
         console.log('📖 正在添加书签...');
-        mergedPdfBytes = await addBookmarksToPdf(mergedPdfBytes, bookmarks);
+        mergedPdfBytes = await addBookmarksToPdf(mergedPdfBytes, bookmarks, docInfo);
         console.log('✓ 书签添加成功');
         
         // 生成书签信息文件
@@ -480,8 +554,8 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
           `${index + 1}. ${bookmark.title} (第${bookmark.pageIndex}页)`
         ).join('\n');
         
-        const bookmarkFilePath = path.join(outputDir, testMode ? 'test_bookmarks.txt' : 'bookmarks.txt');
-        fs.writeFileSync(bookmarkFilePath, `SSH教程目录：\n\n${bookmarkInfo}\n\n总页数：${mergedPdf.getPageCount()}`);
+        const bookmarkFilePath = path.join(outputDir, `${baseFileName}_bookmarks.txt`);
+        fs.writeFileSync(bookmarkFilePath, `${docInfo.title}目录：\n\n${bookmarkInfo}\n\n总页数：${mergedPdf.getPageCount()}`);
         console.log(`📄 书签信息已保存到: ${path.join('output', path.basename(bookmarkFilePath))}`);
         
         // 使用Python脚本添加书签到PDF
@@ -537,8 +611,6 @@ async function addBookmarksToPdf(pdfBytes, bookmarks) {
         console.warn('⚠️ 书签添加失败:', bookmarkError.message);
       }
     }
-    
-    fs.writeFileSync(outputPath, mergedPdfBytes);
     
     console.log('\n🎉 转换完成!');
     console.log(`✅ 成功转换: ${successCount} 个文件`);
