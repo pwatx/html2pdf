@@ -1,0 +1,20 @@
+{
+  "name": "dist",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "@types/node": "^24.2.1"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "cheerio": "^1.1.2",
+    "pdf-lib": "^1.17.1"
+  }
+}
