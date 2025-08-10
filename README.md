@@ -2,7 +2,9 @@
 
 [**中文说明**](README_CN.md) | English
 
-A powerful tool that reads the index.html file (must use this name) from the src folder, parses the table of contents from the index page, matches it with HTML files in the src folder, and generates a bookmark.txt file. The program then converts HTML files to a single PDF document in order according to the table of contents using Node.js's Playwright library, and uses Python's PyPDF2 library to convert bookmark.txt into PDF bookmarks.
+A powerful tool that converts static website HTML pages into PDF files with bookmarks. The program reads the index.html file (must use this name) from the src folder, parses the hierarchical table of contents from the index page, generates a bookmarks.txt file, and cross-checks with the HTML files in the src folder - the directory structure should correspond to the folder and file hierarchy in the src folder. The program then converts HTML files to a single PDF document in order according to the table of contents using Node.js's Playwright library, and uses Python's PyPDF2 library to convert bookmarks.txt into PDF bookmarks.
+
+If the directory hierarchy has more than one level, the folders and HTML files under folders in src must correspond to it. The program will automatically generate nested bookmarks for the PDF directory.
 
 This project can convert multiple HTML files into a single PDF document with automatic bookmark generation. It was originally developed to convert the "SSH Tutorial" from WangDoc.com into a downloadable PDF format. Therefore, this project includes sample files from the "SSH Tutorial".
 
@@ -24,7 +26,7 @@ Sample files on Github: https://github.com/wangdoc/ssh-tutorial
 ## Prerequisites
 
 - Node.js (v14 or higher)
-- Python 3.11.x以上 (for bookmark functionality)
+- Python 3.11.x or higher (for bookmark functionality)
 - npm or yarn
 
 ## Installation
@@ -37,27 +39,32 @@ cd html2pdf
 
 2. Install Node.js dependencies
 ```bash
-npm install
+# Install local dependencies
+npm install 
+# Install several headless browsers
+npx install playwright
 ```
 
 3. Install Python dependencies (for bookmark generation)
 ```bash
+# Install PyPDF2 library
 pip install PyPDF2
 ```
 
 ## Usage
-- Place all HTML files of your static web pages in the `/src` folder, which must include an `index.html` file containing the table of contents.
+- Place all HTML files of your static web pages in the `/src` folder, which must include an `index.html` file containing the table of contents as the main entry point.
+- The directory structure of index.html must match the HTML file structure you place in the `/src` folder.
 - CSS style files should be placed in the `/src/assets` folder. Refer to the sample for folder structure.
 - The cover page can be customized. The cover image must be located in the `/src` folder and named `fengmian.png`.
 
 ### Full Conversion
-Convert all HTML files according to the table of contents:
+Convert all HTML files according to the table of contents in `/src/index.html`:
 ```bash
 node merge_by_toc.js
 ```
 
 ### Test Mode
-Convert only the first file in the table of contents for testing to avoid long conversion time:
+Convert only the first HTML file in the directory (sub-chapters will be converted together if they exist) for testing to avoid long conversion time:
 ```bash
 node merge_by_toc.js --test
 ```
@@ -79,7 +86,7 @@ node merge_by_toc.js --test
 
 # Manually add bookmarks to existing PDF, normally not necessary.
 python add_bookmarks.py output/document_by_toc.pdf
-python add_bookmarks.py output/document_by_toc.pdf output/bookmarks.txt output/final_document.pdf
+python add_bookmarks.py output/document_by_toc.pdf output/bookmarks.txt 
 ```
 
 ## Project Structure
@@ -89,7 +96,8 @@ html2pdf/
 ├── src/                    # Source HTML files
 │   ├── index.html         # Main page with table of contents
 │   ├── basic.html         # Chapter files
-│   ├── client.html
+│   ├── client.html        # Chapter files
+│   ├── ......             # Other chapter files
 │   ├── assets/           # Static resources
 │   │   ├── css/          # Stylesheets
 │   │   ├── js/           # JavaScript files
@@ -101,6 +109,7 @@ html2pdf/
 │   └── bookmarks.txt     # Bookmark information
 ├── merge_by_toc.js       # Main conversion script
 ├── add_bookmarks.py      # Bookmark generation script
+├── toc_parser.py         # bookmarks.txt generation script
 └── playwright.config.ts  # Playwright configuration
 ```
 
@@ -156,7 +165,7 @@ The tool uses Playwright and supports all modern browsers:
 - Supported fonts: SimHei, SimSun, Microsoft YaHei, KaiTi
 
 ### Memory Management
-- The script automatically releases memory every 3 files processed
+- The script automatically releases memory every 5 files processed
 - Temporary files are cleaned up after conversion
 
 ### Common Issues

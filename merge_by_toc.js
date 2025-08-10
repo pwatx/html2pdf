@@ -164,12 +164,25 @@ function extractDocumentInfo($) {
       throw new Error('没有找到有效的HTML文件链接');
     }
     
-    // 测试模式：只转换第一个文件
+    // 测试模式：只转换第一个章节及其直接子文件
     const testMode = process.argv.includes('--test');
-    const filesToProcess = testMode ? tocLinks.slice(0, 1) : tocLinks;
+    let filesToProcess = tocLinks;
     
     if (testMode) {
-      console.log('🧪 测试模式：只转换第一个文件');
+      // 在测试模式下，只转换第一个章节及其直接子文件
+      const firstFile = tocLinks[0];
+      const firstFileDir = path.dirname(firstFile.href);
+      
+      // 筛选出第一个章节文件及其直接子文件
+      filesToProcess = tocLinks.filter(link => {
+        const linkDir = path.dirname(link.href);
+        // 包含第一个章节文件本身
+        if (link.href === firstFile.href) return true;
+        // 只包含直接子文件（在同一目录下且不是目录本身）
+        return linkDir === firstFileDir && linkDir !== '.';
+      });
+      
+      console.log(`🧪 测试模式：转换第一个章节及其直接子文件 (${filesToProcess.length} 个文件)`);
     }
     
     // 创建临时目录（根据模式区分，避免冲突）
@@ -327,10 +340,42 @@ function extractDocumentInfo($) {
       }
     }
     
-    // 添加目录页
-    const tocPage = mergedPdf.addPage([595, 842]);
+    // 批量转换并合并（按目录顺序）
+    let successCount = 0;
+    let failCount = 0;
+    
+    // 用于记录每个章节的实际起始页码
+    const chapterPageMap = new Map();
+    
+    // 先收集所有章节信息，用于生成带层级的目录页
+    const chapterInfo = [];
+    
+    for (const [index, link] of filesToProcess.entries()) {
+      const htmlFile = link.href;
+      const htmlPath = path.resolve(srcDir, htmlFile);
+      
+      // 检查文件是否存在
+      if (!fs.existsSync(htmlPath)) {
+        console.warn(`⚠️ 文件不存在: ${htmlFile}，跳过`);
+        failCount++;
+        continue;
+      }
+      
+      // 收集章节信息
+      chapterInfo.push({
+        index: index + 1,
+        text: link.text,
+        file: htmlFile
+      });
+    }
+    
+    // 添加目录页（在收集完章节信息后生成）
+    const tocPages = [];
+    let tocPage = mergedPdf.addPage([595, 842]);
+    tocPages.push(tocPage);
     currentPageIndex++; // 目录页是第2页
     let yPosition = 700;
+    let tocPageCount = 1; // 目录页数量
     
     if (font) {
       tocPage.drawText('目录', {
@@ -347,18 +392,104 @@ function extractDocumentInfo($) {
       });
     }
     
-    // 批量转换并合并（按目录顺序）
-    let successCount = 0;
-    let failCount = 0;
+    // 读取bookmarks.txt文件来获取层级信息
+    let bookmarksData = null;
+    const bookmarksPath = path.join(outputDir, 'bookmarks.txt');
+    if (fs.existsSync(bookmarksPath)) {
+      try {
+        const bookmarksContent = fs.readFileSync(bookmarksPath, 'utf8');
+        bookmarksData = bookmarksContent.split('\n').filter(line => line.trim() && !line.includes('目录：'));
+      } catch (err) {
+        console.warn('⚠️ 读取bookmarks.txt失败:', err.message);
+      }
+    }
     
+    // 在目录页添加条目（带层级）
+    for (const chapter of chapterInfo) {
+      // 检查是否需要新页面（防止内容超出页面）
+      if (yPosition < 50) {
+        // 创建新页面
+        tocPage = mergedPdf.addPage([595, 842]);
+        tocPages.push(tocPage);
+        tocPageCount++;
+        yPosition = 750;
+        
+        if (font) {
+          tocPage.drawText('目录（续）', {
+            x: 50,
+            y: 780,
+            size: 24,
+            font: font
+          });
+        } else {
+          tocPage.drawText('Table of Contents (cont.)', {
+            x: 50,
+            y: 780,
+            size: 24
+          });
+        }
+        yPosition -= 50;
+      }
+      
+      // 根据bookmarks.txt确定层级和缩进
+      let indent = 0;
+      let displayText = `${chapter.index}. ${chapter.text}`;
+      
+      if (bookmarksData) {
+        // 在bookmarks中查找对应的条目
+        const bookmarkEntry = bookmarksData.find(line => 
+          line.includes(chapter.text) || 
+          line.replace(/\s*\(.+页\)$/, '').trim().endsWith(chapter.text)
+        );
+        
+        if (bookmarkEntry) {
+          // 计算缩进级别
+          const leadingSpaces = bookmarkEntry.length - bookmarkEntry.trimStart().length;
+          indent = leadingSpaces / 4; // 每4个空格为一个缩进级别
+          
+          // 使用bookmarks.txt中的格式
+          const formattedText = bookmarkEntry.replace(/\s*\(第\d+页\)$/, '');
+          displayText = formattedText.trimStart();
+        }
+      }
+      
+      const xPosition = 50 + (indent * 20); // 每级缩进20个单位
+      
+      if (font) {
+        tocPage.drawText(displayText, {
+          x: xPosition,
+          y: yPosition,
+          size: indent > 0 ? 12 : 14, // 子章节使用较小字体
+          color: rgb(0, 0, 0.6),
+          font: font
+        });
+      } else {
+        // 如果无法加载中文字体，尝试过滤掉中文字符
+        const asciiText = displayText.replace(/[\u4e00-\u9fff]/g, '');
+        if (asciiText.trim()) {
+          tocPage.drawText(asciiText.trim(), {
+            x: xPosition,
+            y: yPosition,
+            size: indent > 0 ? 12 : 14,
+            color: rgb(0, 0, 0.6)
+          });
+        }
+      }
+      yPosition -= indent > 0 ? 20 : 25; // 子章节行距稍小
+    }
+    
+    // 更新currentPageIndex以考虑目录页数量
+    currentPageIndex = 1 + tocPageCount; // 封面(1) + 目录页(n)
+    
+    // 重新开始处理HTML文件转换
     for (const [index, link] of filesToProcess.entries()) {
       const htmlFile = link.href;
       const htmlPath = path.resolve(srcDir, htmlFile);
       const tempPdfPath = path.join(tempDir, `${index}_${path.basename(htmlFile)}`);
       
-             // 显示进度
-       const progress = ((index + 1) / filesToProcess.length * 100).toFixed(1);
-       console.log(`\n[${progress}%] [${index + 1}/${filesToProcess.length}] 正在转换: ${htmlFile}`);
+      // 显示进度
+      const progress = ((index + 1) / filesToProcess.length * 100).toFixed(1);
+      console.log(`\n[${progress}%] [${index + 1}/${filesToProcess.length}] 正在转换: ${htmlFile}`);
       
       // 检查文件是否存在
       if (!fs.existsSync(htmlPath)) {
@@ -367,29 +498,6 @@ function extractDocumentInfo($) {
         continue;
       }
       
-      // 在目录页添加条目
-      if (font) {
-        tocPage.drawText(`${index + 1}. ${link.text}`, {
-          x: 50,
-          y: yPosition,
-          size: 14,
-          color: rgb(0, 0, 0.6),
-          font: font
-        });
-      } else {
-        // 如果无法加载中文字体，尝试过滤掉中文字符
-        const asciiText = link.text.replace(/[\u4e00-\u9fff]/g, '');
-        if (asciiText.trim()) {
-          tocPage.drawText(`${index + 1}. ${asciiText.trim()}`, {
-            x: 50,
-            y: yPosition,
-            size: 14,
-            color: rgb(0, 0, 0.6)
-          });
-        }
-      }
-      yPosition -= 25;
-      
       const page = await context.newPage();
       
       try {
@@ -397,7 +505,7 @@ function extractDocumentInfo($) {
         const fileUrl = `file://${htmlPath.replace(/\\/g, '/')}`;
         await page.goto(fileUrl, { 
           waitUntil: 'domcontentloaded',
-          timeout: 60000
+          timeout: 300000
         });
         
         // 添加打印优化样式
@@ -497,6 +605,9 @@ function extractDocumentInfo($) {
         pages.forEach(page => mergedPdf.addPage(page));
         const endPageIndex = currentPageIndex + pages.length - 1;
         
+        // 记录章节的实际起始页码（PDF页码从1开始）
+        chapterPageMap.set(link.text, startPageIndex);
+        
         // 为当前章节添加书签
         bookmarks.push({
           title: link.text,
@@ -515,8 +626,8 @@ function extractDocumentInfo($) {
         await page.close();
       }
       
-      // 每处理3个文件后释放内存 - 修复context重新赋值问题
-      if (index > 0 && index % 3 === 0) {
+      // 每处理5个文件后释放内存 - 修复context重新赋值问题
+      if (index > 0 && index % 5 === 0) {
         console.log('🔄 释放内存...');
         await context.close();
         context = await browser.newContext();
@@ -549,28 +660,30 @@ function extractDocumentInfo($) {
         mergedPdfBytes = await addBookmarksToPdf(mergedPdfBytes, bookmarks, docInfo);
         console.log('✓ 书签添加成功');
         
-        // 生成书签信息文件
-        const bookmarkInfo = bookmarks.map((bookmark, index) => 
-          `${index + 1}. ${bookmark.title} (第${bookmark.pageIndex}页)`
-        ).join('\n');
-        
-        const bookmarkFilePath = path.join(outputDir, `${baseFileName}_bookmarks.txt`);
-        fs.writeFileSync(bookmarkFilePath, `${docInfo.title}目录：\n\n${bookmarkInfo}\n\n总页数：${mergedPdf.getPageCount()}`);
-        console.log(`📄 书签信息已保存到: ${path.join('output', path.basename(bookmarkFilePath))}`);
-        
-        // 使用Python脚本添加书签到PDF
+        // 调用toc_parser.py生成书签文件
         try {
           const { spawn } = require('child_process');
-          const pythonScript = path.join(currentDir, 'add_bookmarks.py');
+          const tocParserScript = path.join(currentDir, 'toc_parser.py');
+          const testMode = process.argv.includes('--test');
           
-          if (fs.existsSync(pythonScript)) {
-            console.log('🐍 正在使用Python脚本添加书签...');
+          if (fs.existsSync(tocParserScript)) {
+            console.log('🐍 正在调用toc_parser.py生成书签文件...');
             
-            const pythonProcess = spawn('python', [
-              pythonScript,
-              outputPath,
-              bookmarkFilePath
-            ]);
+            // 将章节页码映射转换为JSON字符串
+            const pageMapObj = {};
+            for (const [title, pageIndex] of chapterPageMap) {
+              pageMapObj[title] = pageIndex;
+            }
+            const pageMapJson = JSON.stringify(pageMapObj);
+            
+            // 根据模式确定参数
+            const args = [tocParserScript];
+            if (testMode) {
+              args.push('--test');
+            }
+            args.push('--page-map', pageMapJson);
+            
+            const pythonProcess = spawn('python', args);
             
             pythonProcess.stdout.on('data', (data) => {
               // 尝试用UTF-8解码，如果失败则使用原始输出
@@ -593,10 +706,59 @@ function extractDocumentInfo($) {
             await new Promise((resolve, reject) => {
               pythonProcess.on('close', (code) => {
                 if (code === 0) {
-                  console.log('✅ Python书签添加完成');
-                  resolve();
+                  console.log('✅ toc_parser.py执行完成，书签文件已生成');
+                  
+                  // 现在调用add_bookmarks.py来添加书签到PDF
+                  try {
+                    const addBookmarksScript = path.join(currentDir, 'add_bookmarks.py');
+                    const testMode = process.argv.includes('--test');
+                    const bookmarkFileName = testMode ? 'output/test_bookmarks.txt' : 'output/bookmarks.txt';
+                    const bookmarkFilePath = path.join(currentDir, bookmarkFileName);
+                    
+                    if (fs.existsSync(addBookmarksScript) && fs.existsSync(bookmarkFilePath)) {
+                      console.log('🐍 正在使用add_bookmarks.py添加书签到PDF...');
+                      
+                      const addBookmarksProcess = spawn('python', [
+                        addBookmarksScript,
+                        outputPath,
+                        bookmarkFilePath
+                      ]);
+                      
+                      addBookmarksProcess.stdout.on('data', (data) => {
+                        try {
+                          console.log(data.toString('utf8').trim());
+                        } catch (e) {
+                          console.log(data.toString().trim());
+                        }
+                      });
+                      
+                      addBookmarksProcess.stderr.on('data', (data) => {
+                        try {
+                          console.warn(data.toString('utf8').trim());
+                        } catch (e) {
+                          console.warn(data.toString().trim());
+                        }
+                      });
+                      
+                      addBookmarksProcess.on('close', (addBookmarksCode) => {
+                        if (addBookmarksCode === 0) {
+                          console.log('✅ 书签已成功添加到PDF');
+                          resolve();
+                        } else {
+                          console.warn('⚠️ 书签添加到PDF失败，但PDF已生成');
+                          resolve();
+                        }
+                      });
+                    } else {
+                      console.log('ℹ️ 书签文件或add_bookmarks.py不存在，跳过书签添加');
+                      resolve();
+                    }
+                  } catch (addBookmarksError) {
+                    console.warn('⚠️ 调用add_bookmarks.py时出错:', addBookmarksError.message);
+                    resolve();
+                  }
                 } else {
-                  console.warn('⚠️ Python书签添加失败，但PDF已生成');
+                  console.warn('⚠️ toc_parser.py执行失败，但PDF已生成');
                   resolve();
                 }
               });

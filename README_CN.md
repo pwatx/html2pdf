@@ -1,8 +1,10 @@
 # HTML转PDF转换器
 
-一个强大的工具，程序会读取src文件夹里面的index.html（必须用这个名字）,并读取index页面里面的目录，和src文件夹里面的html对照，生成目录书签bookmark.txt。然后程序会按照目录的顺序，利用nodejs的playwright库将HTML文件转化合并为1个PDF文件，同时利用python的PyPDF2库将bookmark.txt转化为pdf的书签。
+一个强大的工具，功能是将静态网站的html网页转化为带有书签的PDF文件。程序会读取src文件夹里面的index.html（必须用这个名字）,并读取index页面里面的目录层级信息，生成目录书签bookmarks.txt，并且和src文件夹里面的html文件对照检查——目录的结构应该和src文件夹里面的文件夹和文件层级结构对应。然后程序会按照目录的顺序，利用nodejs的playwright库将HTML文件转化合并为1个PDF文件，同时利用python的PyPDF2库将bookmarks.txt转化为pdf的书签。
 
-此项目可以将多个HTML文件转换为单个PDF文档并自动生成书签。这个项目最初是为了将网道(WangDoc.com)的《SSH教程》转换为可下载的PDF格式而开发的。因此，此项目中包含有《SSH教程》的样例文件。
+如果目录层级不只有一级，那么要求src里面的文件夹和文件夹下的html文件与之对应，最终本程序会自动为目录生成PDF的嵌套书签。
+
+这个项目最初是为了将网道(WangDoc.com)的《SSH教程》转换为可下载的PDF格式而开发的。因此，此项目中包含有《SSH教程》的样例文件。
 
 样例文件的原网址：https://wangdoc.com/ssh/
 
@@ -35,27 +37,32 @@ cd html2pdf
 
 2. 安装Node.js依赖
 ```bash
-npm install
+# 安装本地依赖库
+npm install 
+# 安装几个无头浏览器
+npx install playwright
 ```
 
 3. 安装Python依赖（用于书签生成）
 ```bash
+# 安装PyPDF2库
 pip install PyPDF2
 ```
 
 ## 使用方法
-- 将你要转化的静态网页文件的html文件都放置于/src文件夹内，其中必须要包括一个含有目录的Index.html文件在内。
+- 将你要转化的静态网页文件的html文件都放置于/src文件夹内，其中必须要包括一个含有目录的Index.html文件作为主页入口。
+- index.html的目录结构，和你放在/src文件夹内的html文件结构必须一致。
 - css样式文件统一放在/src/assets文件夹内，文件夹结构参考样例。
 - 封面可以自定义设计，封面图片必须位于/src文件夹内，命名为fengmian.png。
 
 ### 完整转换
-根据目录转换所有HTML文件：
+根据/src/index.html文件内的目录转换所有HTML文件：
 ```bash
 node merge_by_toc.js
 ```
 
 ### 测试模式
-仅转换目录里面的第一个文件用于测试，避免全部转化时间太久：
+仅转换目录里面的第一个html文件（如果有次级章节会一起转换）用于测试，避免全部转化时间太久：
 ```bash
 node merge_by_toc.js --test
 ```
@@ -77,7 +84,7 @@ node merge_by_toc.js --test
 
 # 手动为现有PDF添加书签，正常情况下没有必要。
 python add_bookmarks.py output/document_by_toc.pdf
-python add_bookmarks.py output/document_by_toc.pdf output/bookmarks.txt output/final_document.pdf
+python add_bookmarks.py output/document_by_toc.pdf output/bookmarks.txt 
 ```
 
 ## 项目结构
@@ -87,7 +94,8 @@ html2pdf/
 ├── src/                    # 源HTML文件
 │   ├── index.html         # 包含目录的主页面
 │   ├── basic.html         # 各章节文件
-│   ├── client.html
+│   ├── client.html        # 各章节文件
+│   ├── ......             # 其余各章节文件
 │   ├── assets/           # 静态资源
 │   │   ├── css/          # 样式文件
 │   │   ├── js/           # JavaScript文件
@@ -99,6 +107,7 @@ html2pdf/
 │   └── bookmarks.txt     # 书签信息
 ├── merge_by_toc.js       # 主要转换脚本
 ├── add_bookmarks.py      # 书签生成脚本
+├── toc_parser.py         # bookmarks.txt生成脚本
 └── playwright.config.ts  # Playwright配置
 ```
 
@@ -154,7 +163,7 @@ html2pdf/
 - 支持的字体：黑体、宋体、微软雅黑、楷体
 
 ### 内存管理
-- 脚本每处理3个文件自动释放内存
+- 脚本每处理5个文件自动释放内存
 - 转换完成后自动清理临时文件
 
 ### 常见问题

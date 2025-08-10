@@ -15,6 +15,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
+
 def parse_bookmarks(bookmarks_file):
     """解析书签文件，提取文档标题和章节书签"""
     bookmarks = []
@@ -26,25 +27,48 @@ def parse_bookmarks(bookmarks_file):
     
     try:
         with open(bookmarks_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+            lines = f.readlines()
         
         # 提取文档标题（格式："文档标题目录："）
-        title_match = re.search(r'^(.+?)目录：', content, re.MULTILINE)
-        if title_match:
-            doc_title = title_match.group(1).strip()
+        if lines:
+            title_line = lines[0].strip()
+            if title_line.endswith('目录：'):
+                doc_title = title_line[:-3]  # 移除"目录："三个字
         
-        # 使用正则表达式匹配书签条目
-        # 格式: "1. 章节标题 (第X页)"
-        pattern = r'(\d+)\.\s+(.+?)\s+\(第(\d+)页\)'
-        matches = re.findall(pattern, content)
-        
-        for match in matches:
-            index, title, page_num = match
-            bookmarks.append({
-                'index': int(index),
-                'title': title.strip(),
-                'page': int(page_num)
-            })
+        # 解析书签条目，支持多层级结构
+        for line in lines:
+            if not line or '目录：' in line:
+                continue
+                
+            # 计算缩进级别（通过前导空格数）
+            leading_spaces = len(line) - len(line.lstrip(' '))
+            if leading_spaces == 0:
+                indent_level = 0
+            elif leading_spaces == 4:
+                indent_level = 1
+            elif leading_spaces == 8:
+                indent_level = 2
+            else:
+                indent_level = leading_spaces // 4
+            
+            # 匹配书签条目
+            # 格式: "1.章节标题(第X页)" 或 "1.1 章节标题(第X页)"
+            # 主章节: 索引后直接跟标题，如 "1.入门篇(第3页)"
+            # 子章节: 索引后有空格再跟标题，如 "1.1 导论(第4页)"
+            sub_chapter_pattern = r'^(\d+(?:\.\d+)+)\s+(.+?)\s*\(第(\d+)页\)$'
+            main_chapter_pattern = r'^(\d+)\.(.+?)\s*\(第(\d+)页\)$'
+            
+            sub_match = re.match(sub_chapter_pattern, line.lstrip())
+            main_match = re.match(main_chapter_pattern, line.lstrip())
+            
+            if sub_match or main_match:
+                index, title, page_num = (sub_match or main_match).groups()
+                bookmarks.append({
+                    'index': index,
+                    'title': title.strip(),
+                    'page': int(page_num),
+                    'level': indent_level
+                })
         
         print(f"[成功] 从 {bookmarks_file} 中解析到文档标题: {doc_title}")
         print(f"[成功] 解析到 {len(bookmarks)} 个章节书签")
@@ -53,6 +77,7 @@ def parse_bookmarks(bookmarks_file):
         print(f"[错误] 解析书签文件失败: {e}")
     
     return bookmarks, doc_title
+
 
 def add_bookmarks_to_pdf(pdf_file, bookmarks, doc_title, output_file=None):
     """将书签添加到PDF文件"""
@@ -91,34 +116,54 @@ def add_bookmarks_to_pdf(pdf_file, bookmarks, doc_title, output_file=None):
         )
         print("  [成功] 目录 -> 第2页")
         
-        # 添加章节书签
+        # 添加章节书签（支持多层级）
+        # 用于跟踪父书签的字典，key为层级，value为父书签对象
+        parent_bookmarks = {}
+        
         for bookmark in bookmarks:
             # PyPDF2中页码从0开始，所以需要减1
-            page_index = bookmark['page'] 
+            page_index = bookmark['page'] - 1
             if 0 <= page_index < len(reader.pages):
-                writer.add_outline_item(
-                    title=bookmark['title'],
-                    page_number=page_index
-                )
-                print(f"  [成功] {bookmark['index']}. {bookmark['title']} -> 第{bookmark['page']}页")
+                # 根据层级添加书签
+                if bookmark['level'] == 0:
+                    # 顶级书签
+                    parent = writer.add_outline_item(
+                        title=bookmark['title'],
+                        page_number=page_index
+                    )
+                    parent_bookmarks[0] = parent
+                    print(f"  [成功] {bookmark['index']} {bookmark['title']} -> 第{bookmark['page']}页")
+                else:
+                    # 子级书签，需要找到父书签
+                    # 查找最近的父层级（小于当前层级的最大层级）
+                    parent = None
+                    for level in range(bookmark['level'] - 1, -1, -1):
+                        if level in parent_bookmarks:
+                            parent = parent_bookmarks[level]
+                            break
+                    
+                    if parent is not None:
+                        # 找到父书签，作为子书签添加
+                        child = writer.add_outline_item(
+                            title=bookmark['title'],
+                            page_number=page_index,
+                            parent=parent
+                        )
+                        parent_bookmarks[bookmark['level']] = child
+                        print(f"    [成功] {bookmark['index']} {bookmark['title']} -> 第{bookmark['page']}页")
+                    else:
+                        # 如果找不到父书签，则作为顶级书签添加
+                        parent = writer.add_outline_item(
+                            title=bookmark['title'],
+                            page_number=page_index
+                        )
+                        parent_bookmarks[bookmark['level']] = parent
+                        print(f"    [成功] {bookmark['index']} {bookmark['title']} -> 第{bookmark['page']}页 (作为顶级书签)")
             else:
                 print(f"  [警告] 页码超出范围: {bookmark['title']} -> 第{bookmark['page']}页")
         
-        # 设置默认页面缩放为125%
-        try:
-            from PyPDF2.generic import createStringObject, createNumberObject, DictionaryObject
-            # 创建ViewerPreferences字典
-            viewer_prefs = DictionaryObject()
-            viewer_prefs[createStringObject('/FitWindow')] = createStringObject('true')
-            viewer_prefs[createStringObject('/DisplayDocTitle')] = createStringObject('true')
-            
-            # 设置到根对象
-            writer._root_object.update({
-                createStringObject('/ViewerPreferences'): viewer_prefs
-            })
-            print("  [成功] 已设置默认视图属性")
-        except Exception as e:
-            print(f"  [信息] 无法设置默认缩放: {e}")
+        # 注意：已移除默认视图属性设置，避免PyPDF2版本兼容性问题
+        print("  [信息] 已跳过默认视图属性设置（PyPDF2版本兼容性考虑）")
         
         # 设置输出文件名
         if output_file is None:
@@ -136,6 +181,7 @@ def add_bookmarks_to_pdf(pdf_file, bookmarks, doc_title, output_file=None):
     except Exception as e:
         print(f"[错误] 添加书签失败: {e}")
         return False
+
 
 def main():
     """主函数"""
@@ -192,6 +238,7 @@ def main():
         print("现在你可以在PDF阅读器中看到书签面板了。")
     else:
         print("\n[错误] 书签添加失败！")
+
 
 if __name__ == "__main__":
     main()

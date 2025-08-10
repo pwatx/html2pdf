@@ -2,102 +2,152 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 项目概述
+## Project Overview
 
-这是一个HTML转PDF的工具项目，主要功能是将SSH教程的多个HTML文件按目录顺序合并成一个PDF文档，并自动添加书签。
+This is an HTML to PDF conversion tool that transforms multiple HTML files into a single PDF document with automatic bookmark generation. The project parses the table of contents from `src/index.html`, converts HTML files to PDF in order, and adds interactive bookmarks using a combination of Node.js and Python scripts.
 
-## 常用命令
+This project was originally developed to convert the "SSH Tutorial" from WangDoc.com into a downloadable PDF format, and includes sample files from that tutorial.
 
-### 安装依赖
+## Common Commands
+
+### Install Dependencies
 ```bash
 npm install
 ```
 
-### 运行HTML转PDF（完整转换）
+### Install Python Dependencies (for bookmarks)
+```bash
+pip install PyPDF2
+```
+
+### Run HTML to PDF Conversion (Full)
 ```bash
 node merge_by_toc.js
 ```
 
-### 测试模式（只转换第一个文件）
+### Test Mode (Convert only first file)
 ```bash
 node merge_by_toc.js --test
 ```
 
-### 添加书签到PDF
+### Add Bookmarks to PDF
 ```bash
-python add_bookmarks.py <pdf文件路径> [书签文件路径] [输出文件路径]
+python add_bookmarks.py <pdf_file_path> [bookmarks_file_path] [output_file_path]
 ```
 
-### 运行Playwright测试
+### Run Playwright Tests
 ```bash
 npx playwright test
 ```
 
-## 项目架构
+## Project Architecture
 
-### 核心文件
-- `merge_by_toc.js` - 主要的HTML转PDF脚本，使用Playwright和pdf-lib
-- `add_bookmarks.py` - Python脚本，用于向PDF添加书签（使用PyPDF2）
-- `playwright.config.ts` - Playwright测试配置
+### Core Files
+- `merge_by_toc.js` - Main conversion script using Playwright and pdf-lib
+- `add_bookmarks.py` - Python script for adding PDF bookmarks using PyPDF2
+- `toc_parser.py` - Python script for parsing hierarchical table of contents structure
+- `playwright.config.ts` - Playwright test configuration
 
-### 目录结构
-- `src/` - 源HTML文件目录
-  - `index.html` - 主页面，包含目录结构
-  - `basic.html`, `client.html` 等各章节HTML文件
-  - `assets/` - 静态资源（CSS、JS、图片、字体）
-- `output/` - 输出目录
-  - `document_by_toc.pdf` - 生成的PDF文档
-  - `document_by_toc_with_bookmarks.pdf` - 带书签的PDF文档
-  - `bookmarks.txt` - 书签信息文件
+### Directory Structure
+- `src/` - Source HTML files directory
+  - `index.html` - Main page containing table of contents structure
+  - `basic.html`, `client.html`, etc. - Individual chapter HTML files
+  - `assets/` - Static resources (CSS, JS, images, fonts)
+- `output/` - Output directory
+  - `document_by_toc.pdf` - Generated PDF document
+  - `document_by_toc_with_bookmarks.pdf` - PDF with bookmarks
+  - `bookmarks.txt` - Bookmark information file
 
-### 工作流程
-1. 解析 `src/index.html` 中的目录结构，获取HTML文件顺序
-2. 使用Playwright将每个HTML文件转换为PDF
-3. 使用pdf-lib合并所有PDF并添加封面页和目录页
-4. 使用Python脚本和PyPDF2添加交互式书签
+### Workflow
+1. Parse `src/index.html` to extract table of contents and HTML file order
+2. Use Playwright to convert each HTML file to PDF with print-optimized styling
+3. Merge all PDFs using pdf-lib, adding cover page and hierarchical table of contents
+4. Generate bookmark information file and use PyPDF2 to add interactive bookmarks
 
-## 关键依赖
+## Key Dependencies
 
-### JavaScript依赖
-- **@playwright/test** - 浏览器自动化，用于HTML转PDF
-- **pdf-lib** - PDF操作库，用于合并PDF和创建页面
-- **@pdf-lib/fontkit** - 字体支持，用于中文字体嵌入
-- **cheerio** - HTML解析，用于提取目录结构
+### JavaScript Dependencies
+- **@playwright/test** - Browser automation for HTML to PDF conversion
+- **pdf-lib** - PDF manipulation and merging library
+- **@pdf-lib/fontkit** - Font embedding support for Chinese characters
+- **cheerio** - HTML parsing for table of contents extraction
 
-### Python依赖（需单独安装）
-- **PyPDF2** - PDF书签操作
+### Python Dependencies
+- **PyPDF2** - PDF bookmark manipulation (requires separate installation)
+- **BeautifulSoup** - HTML parsing for hierarchical table of contents extraction
 
-## 重要说明
+## Important Implementation Details
 
-### 中文字体支持
-- 脚本会自动尝试加载Windows系统字体（黑体、宋体、微软雅黑等）
-- 如果无法加载中文字体，将使用英文标题
+### Chinese Font Support
+- Script automatically attempts to load Windows system fonts (SimHei, SimSun, Microsoft YaHei, KaiTi)
+- Falls back to English text if Chinese fonts are unavailable
+- Font loading happens at `merge_by_toc.js:207-236`
 
-### 测试模式
-- 使用 `--test` 参数可以只转换第一个文件进行测试
-- 测试模式的输出文件会添加 `test_` 前缀，避免与正式文件冲突
+### Print Optimization
+- Custom CSS injected during conversion hides navigation elements
+- Code blocks and images optimized for print layout
+- Print-specific styles applied at `merge_by_toc.js:420-466`
 
-### 内存管理
-- 脚本会定期释放Playwright context内存（每处理3个文件）
-- 临时文件会在处理完成后自动清理
+### Memory Management
+- Playwright context memory released every 5 files processed
+- Temporary files automatically cleaned up after conversion
+- Memory management logic at `merge_by_toc.js:537-542`
 
-### 书签格式
-- 书签文件格式：`序号. 章节标题 (第X页)`
-- 支持封面页（第1页）和目录页（第2页）的自动书签
+### Bookmark Generation
+- Two-step process: JavaScript generates bookmark info, Python adds to PDF
+- Bookmark format: "序号. 章节标题 (第X页)"
+- Supports cover page (page 1) and table of contents (page 2) bookmarks
+- Table of contents page supports hierarchical structure and automatic pagination for large documents
+- Bookmarks support multi-level hierarchy with proper parent-child relationships
 
-## 开发注意事项
+### Error Handling
+- Graceful handling of missing HTML files with warnings
+- Automatic fallback for image format detection
+- UTF-8 encoding support for Chinese characters in Python script
 
-### HTML文件要求
-- 所有HTML文件必须在 `src/` 目录下
-- `index.html` 必须包含正确的目录链接结构
-- 链接应使用相对路径（如 `./basic.html`）
+### Table of Contents Parsing
+- Uses multiple CSS selectors to find TOC structure in `index.html`
+- Supported selectors: `.panel-menu a`, `.menu-list a`, `.toc a`, `.sidebar a`, etc.
+- Parsing logic at `merge_by_toc.js:126-159`
+- Generates hierarchical table of contents with proper indentation and pagination
+- Uses BeautifulSoup in `toc_parser.py` for more robust hierarchical parsing
 
-### PDF输出
-- 默认输出格式：A4纸张，15mm上下边距，10mm左右边距
-- 自动添加页眉（章节标题）和页脚（页码）
-- 支持背景图片和样式的保留
+### Cover Page Generation
+- Automatically detects and embeds cover image (`fengmian.png`)
+- Supports both PNG and JPG formats with automatic detection
+- Adds title and author information from HTML metadata
+- Cover generation logic at `merge_by_toc.js:202-341`
 
-### 错误处理
-- 脚本会跳过不存在的HTML文件并记录警告
-- 提供详细的进度信息和错误日志
-- 支持部分文件转换失败的情况
+### Table of Contents Page Generation
+- Dynamically generates table of contents page with hierarchical structure
+- Automatically handles pagination for large tables of contents
+- Properly accounts for additional TOC pages when calculating page numbers
+- Uses indentation to represent hierarchical structure
+
+## Development Notes
+
+### HTML File Requirements
+- All HTML files must be in `src/` directory
+- `index.html` must contain proper table of contents with relative links
+- Cover image should be named `fengmian.png` in `src/` directory
+
+### PDF Output Specifications
+- A4 paper format with 15mm top/bottom margins, 10mm left/right margins
+- Automatic header (chapter title) and footer (page numbers)
+- Background images and styles preserved during conversion
+
+### Testing
+- Use `--test` flag for quick validation with single file conversion
+- Test files prefixed with `test_` to avoid conflicts with production files
+- Playwright configuration supports multiple browsers (Chromium, Firefox, WebKit)
+
+### File Naming Convention
+- Output files are named using document title and author from HTML metadata
+- Filenames are sanitized to remove invalid characters
+- Test mode files use `test_` prefix to avoid conflicts
+
+### Recent Improvements
+- Enhanced table of contents page generation with hierarchical structure support
+- Automatic pagination for large tables of contents
+- Proper page number calculation that accounts for multiple TOC pages
+- Improved bookmark generation with hierarchical support
